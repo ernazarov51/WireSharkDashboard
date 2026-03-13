@@ -1,0 +1,1734 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tarmoq Anomaliya Tahlilchisi</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  :root {
+    --bg-deep: #050810;
+    --bg-card: #0a0f1e;
+    --bg-panel: #0d1426;
+    --border: #1a2540;
+    --border-glow: #1e3a6e;
+    --accent-cyan: #00d4ff;
+    --accent-green: #00ff88;
+    --accent-red: #ff3b5c;
+    --accent-orange: #ff8c42;
+    --accent-yellow: #ffd700;
+    --text-primary: #e8f0ff;
+    --text-secondary: #6b84b8;
+    --text-dim: #3a4a6b;
+    --glow-cyan: 0 0 20px rgba(0,212,255,0.3);
+    --glow-green: 0 0 20px rgba(0,255,136,0.3);
+    --glow-red: 0 0 20px rgba(255,59,92,0.3);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg-deep);
+    color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Animated scan line */
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent-cyan), transparent);
+    animation: scanLine 4s linear infinite;
+    z-index: 1;
+    opacity: 0.5;
+  }
+
+  @keyframes scanLine {
+    0% { top: 0; }
+    100% { top: 100vh; }
+  }
+
+  .container {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 0 24px;
+    position: relative;
+    z-index: 2;
+  }
+
+  /* HEADER */
+  header {
+    padding: 20px 0;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+  }
+
+  .header-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .logo-group {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .logo-icon {
+    width: 42px;
+    height: 42px;
+    border: 1.5px solid var(--accent-cyan);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: var(--glow-cyan);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .logo-icon::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(0,212,255,0.15), transparent);
+  }
+
+  .logo-icon svg { position: relative; z-index: 1; }
+
+  .logo-text {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 20px;
+    letter-spacing: -0.5px;
+    color: var(--text-primary);
+  }
+
+  .logo-text span {
+    color: var(--accent-cyan);
+  }
+
+  .logo-sub {
+    font-size: 10px;
+    color: var(--text-secondary);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-top: 2px;
+  }
+
+  .header-status {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+  }
+
+  .status-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent-green);
+    box-shadow: var(--glow-green);
+    animation: pulse 2s infinite;
+  }
+
+  .status-dot.offline { background: var(--text-dim); box-shadow: none; animation: none; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .time-display {
+    font-size: 12px;
+    color: var(--accent-cyan);
+    letter-spacing: 1px;
+  }
+
+  /* UPLOAD ZONE */
+  .upload-section {
+    padding: 32px 0 24px;
+  }
+
+  .section-label {
+    font-size: 10px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .upload-zone {
+    border: 1.5px dashed var(--border-glow);
+    border-radius: 12px;
+    padding: 40px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+    background: rgba(10,15,30,0.6);
+  }
+
+  .upload-zone:hover, .upload-zone.dragover {
+    border-color: var(--accent-cyan);
+    background: rgba(0,212,255,0.04);
+    box-shadow: inset 0 0 40px rgba(0,212,255,0.05), var(--glow-cyan);
+  }
+
+  .upload-zone input[type="file"] {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    width: 100%;
+    height: 100%;
+  }
+
+  .upload-icon {
+    margin: 0 auto 16px;
+    width: 56px;
+    height: 56px;
+    border: 1px solid var(--border-glow);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,212,255,0.06);
+  }
+
+  .upload-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 6px;
+  }
+
+  .upload-sub {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 20px;
+  }
+
+  .upload-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 24px;
+    background: transparent;
+    border: 1px solid var(--accent-cyan);
+    color: var(--accent-cyan);
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 1px;
+  }
+
+  .upload-btn:hover {
+    background: rgba(0,212,255,0.1);
+    box-shadow: var(--glow-cyan);
+  }
+
+  .file-info {
+    display: none;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 20px;
+    background: rgba(0,255,136,0.05);
+    border: 1px solid rgba(0,255,136,0.2);
+    border-radius: 8px;
+    margin-top: 16px;
+    font-size: 13px;
+  }
+
+  .file-info.visible { display: flex; }
+
+  .file-info-name { color: var(--accent-green); font-weight: 500; }
+  .file-info-size { color: var(--text-secondary); margin-left: auto; }
+
+  /* FILTERS */
+  .filters-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  .filter-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    transition: border-color 0.2s;
+  }
+
+  .filter-card:hover { border-color: var(--border-glow); }
+
+  .filter-card-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .filter-card-title .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+  }
+
+  .filter-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .filter-tag {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.2s;
+    letter-spacing: 0.5px;
+    user-select: none;
+  }
+
+  .filter-tag input { display: none; }
+
+  .filter-tag.cyan { border-color: rgba(0,212,255,0.3); color: var(--accent-cyan); background: rgba(0,212,255,0.05); }
+  .filter-tag.cyan:hover, .filter-tag.cyan.active { background: rgba(0,212,255,0.15); border-color: var(--accent-cyan); box-shadow: 0 0 10px rgba(0,212,255,0.2); }
+
+  .filter-tag.green { border-color: rgba(0,255,136,0.3); color: var(--accent-green); background: rgba(0,255,136,0.05); }
+  .filter-tag.green:hover, .filter-tag.green.active { background: rgba(0,255,136,0.15); border-color: var(--accent-green); }
+
+  .filter-tag.red { border-color: rgba(255,59,92,0.3); color: var(--accent-red); background: rgba(255,59,92,0.05); }
+  .filter-tag.red:hover, .filter-tag.red.active { background: rgba(255,59,92,0.15); border-color: var(--accent-red); }
+
+  .filter-tag.orange { border-color: rgba(255,140,66,0.3); color: var(--accent-orange); background: rgba(255,140,66,0.05); }
+  .filter-tag.orange:hover, .filter-tag.orange.active { background: rgba(255,140,66,0.15); border-color: var(--accent-orange); }
+
+  .filter-tag.yellow { border-color: rgba(255,215,0,0.3); color: var(--accent-yellow); background: rgba(255,215,0,0.05); }
+  .filter-tag.yellow:hover, .filter-tag.yellow.active { background: rgba(255,215,0,0.15); border-color: var(--accent-yellow); }
+
+  .filter-code {
+    font-size: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    opacity: 0.7;
+    display: block;
+    margin-top: 8px;
+    padding: 6px 10px;
+    background: rgba(255,255,255,0.03);
+    border-radius: 4px;
+    border-left: 2px solid var(--border-glow);
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .analyze-btn {
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, rgba(0,212,255,0.15), rgba(0,212,255,0.05));
+    border: 1px solid var(--accent-cyan);
+    color: var(--accent-cyan);
+    border-radius: 8px;
+    font-family: 'Syne', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.3s;
+    margin-bottom: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+  }
+
+  .analyze-btn:hover {
+    background: rgba(0,212,255,0.2);
+    box-shadow: var(--glow-cyan), inset 0 0 30px rgba(0,212,255,0.05);
+    transform: translateY(-1px);
+  }
+
+  .analyze-btn:active { transform: translateY(0); }
+
+  .analyze-btn.loading { opacity: 0.7; pointer-events: none; }
+
+  /* STATS CARDS */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+
+  @media (max-width: 1100px) { .stats-grid { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 700px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
+
+  .stat-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s;
+    animation: fadeInUp 0.4s ease both;
+  }
+
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .stat-card:nth-child(1) { animation-delay: 0.05s; }
+  .stat-card:nth-child(2) { animation-delay: 0.1s; }
+  .stat-card:nth-child(3) { animation-delay: 0.15s; }
+  .stat-card:nth-child(4) { animation-delay: 0.2s; }
+  .stat-card:nth-child(5) { animation-delay: 0.25s; }
+  .stat-card:nth-child(6) { animation-delay: 0.3s; }
+
+  .stat-card:hover { border-color: var(--border-glow); transform: translateY(-2px); }
+
+  .stat-card::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+
+  .stat-card.cyan::after { background: var(--accent-cyan); }
+  .stat-card.green::after { background: var(--accent-green); }
+  .stat-card.red::after { background: var(--accent-red); }
+  .stat-card.orange::after { background: var(--accent-orange); }
+  .stat-card.yellow::after { background: var(--accent-yellow); }
+  .stat-card.purple::after { background: #a855f7; }
+
+  .stat-label {
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+  }
+
+  .stat-value {
+    font-family: 'Syne', sans-serif;
+    font-size: 28px;
+    font-weight: 800;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+
+  .stat-card.cyan .stat-value { color: var(--accent-cyan); }
+  .stat-card.green .stat-value { color: var(--accent-green); }
+  .stat-card.red .stat-value { color: var(--accent-red); }
+  .stat-card.orange .stat-value { color: var(--accent-orange); }
+  .stat-card.yellow .stat-value { color: var(--accent-yellow); }
+  .stat-card.purple .stat-value { color: #a855f7; }
+
+  .stat-change {
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+
+  /* CHARTS */
+  .charts-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  @media (max-width: 900px) { .charts-grid { grid-template-columns: 1fr; } }
+
+  .chart-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    animation: fadeInUp 0.5s ease both;
+    animation-delay: 0.35s;
+  }
+
+  .chart-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+
+  .chart-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .chart-badge {
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 3px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .chart-badge.live {
+    background: rgba(0,255,136,0.1);
+    color: var(--accent-green);
+    border: 1px solid rgba(0,255,136,0.3);
+  }
+
+  canvas { max-height: 220px; }
+
+  /* ANOMALY ALERTS */
+  .alerts-section { margin-bottom: 24px; }
+
+  .alerts-list { display: flex; flex-direction: column; gap: 8px; }
+
+  .alert-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    transition: all 0.2s;
+    animation: slideIn 0.3s ease both;
+    cursor: default;
+  }
+
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(-10px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .alert-item:hover { transform: translateX(4px); }
+
+  .alert-item.critical {
+    background: rgba(255,59,92,0.06);
+    border-color: rgba(255,59,92,0.25);
+  }
+
+  .alert-item.warning {
+    background: rgba(255,140,66,0.06);
+    border-color: rgba(255,140,66,0.25);
+  }
+
+  .alert-item.info {
+    background: rgba(0,212,255,0.05);
+    border-color: rgba(0,212,255,0.2);
+  }
+
+  .alert-item.ok {
+    background: rgba(0,255,136,0.04);
+    border-color: rgba(0,255,136,0.2);
+  }
+
+  .alert-level {
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 3px;
+    white-space: nowrap;
+    font-weight: 600;
+    min-width: 70px;
+    text-align: center;
+  }
+
+  .critical .alert-level { background: rgba(255,59,92,0.2); color: var(--accent-red); }
+  .warning .alert-level { background: rgba(255,140,66,0.2); color: var(--accent-orange); }
+  .info .alert-level { background: rgba(0,212,255,0.15); color: var(--accent-cyan); }
+  .ok .alert-level { background: rgba(0,255,136,0.15); color: var(--accent-green); }
+
+  .alert-type {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    min-width: 160px;
+  }
+
+  .alert-desc {
+    font-size: 11px;
+    color: var(--text-secondary);
+    flex: 1;
+  }
+
+  .alert-count {
+    font-family: 'Syne', sans-serif;
+    font-size: 16px;
+    font-weight: 800;
+    min-width: 60px;
+    text-align: right;
+  }
+
+  .critical .alert-count { color: var(--accent-red); }
+  .warning .alert-count { color: var(--accent-orange); }
+  .info .alert-count { color: var(--accent-cyan); }
+  .ok .alert-count { color: var(--accent-green); }
+
+  .alert-time {
+    font-size: 10px;
+    color: var(--text-dim);
+    min-width: 50px;
+    text-align: right;
+  }
+
+  /* PACKET TABLE */
+  .table-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 24px;
+    animation: fadeInUp 0.5s ease both;
+    animation-delay: 0.5s;
+  }
+
+  .table-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .table-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .table-controls {
+    display: flex;
+    gap: 8px;
+  }
+
+  .table-search {
+    padding: 6px 12px;
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    outline: none;
+    width: 200px;
+    transition: border-color 0.2s;
+  }
+
+  .table-search:focus { border-color: var(--accent-cyan); }
+  .table-search::placeholder { color: var(--text-dim); }
+
+  .table-select {
+    padding: 6px 12px;
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text-secondary);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    outline: none;
+    cursor: pointer;
+  }
+
+  .table-wrap { overflow-x: auto; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  thead th {
+    padding: 10px 16px;
+    text-align: left;
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    font-weight: 400;
+  }
+
+  tbody tr {
+    border-bottom: 1px solid rgba(26,37,64,0.5);
+    transition: background 0.15s;
+    cursor: pointer;
+  }
+
+  tbody tr:hover { background: rgba(0,212,255,0.03); }
+
+  tbody tr.anomaly-row { background: rgba(255,59,92,0.04); }
+  tbody tr.anomaly-row:hover { background: rgba(255,59,92,0.07); }
+
+  td {
+    padding: 10px 16px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+
+  td.td-num { color: var(--text-dim); }
+  td.td-time { color: var(--accent-cyan); opacity: 0.8; }
+  td.td-src, td.td-dst { font-family: 'JetBrains Mono', monospace; }
+  td.td-proto { }
+
+  .proto-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+
+  .proto-tcp { background: rgba(0,212,255,0.12); color: var(--accent-cyan); }
+  .proto-udp { background: rgba(0,255,136,0.12); color: var(--accent-green); }
+  .proto-dns { background: rgba(168,85,247,0.15); color: #c084fc; }
+  .proto-icmp { background: rgba(255,215,0,0.12); color: var(--accent-yellow); }
+  .proto-http { background: rgba(255,140,66,0.12); color: var(--accent-orange); }
+
+  .flag-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    margin: 1px;
+  }
+
+  .flag-syn { background: rgba(0,212,255,0.15); color: var(--accent-cyan); }
+  .flag-ack { background: rgba(0,255,136,0.12); color: var(--accent-green); }
+  .flag-rst { background: rgba(255,59,92,0.2); color: var(--accent-red); border: 1px solid rgba(255,59,92,0.3); }
+  .flag-fin { background: rgba(255,215,0,0.12); color: var(--accent-yellow); }
+  .flag-psh { background: rgba(168,85,247,0.15); color: #c084fc; }
+
+  .anomaly-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    background: rgba(255,59,92,0.15);
+    color: var(--accent-red);
+    border: 1px solid rgba(255,59,92,0.3);
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .ok-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    background: rgba(0,255,136,0.08);
+    color: var(--accent-green);
+    border-radius: 3px;
+    font-size: 9px;
+    letter-spacing: 1px;
+  }
+
+  /* PAGINATION */
+  .pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    border-top: 1px solid var(--border);
+  }
+
+  .page-info { font-size: 11px; color: var(--text-dim); }
+
+  .page-btns { display: flex; gap: 4px; }
+
+  .page-btn {
+    width: 30px; height: 30px;
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .page-btn:hover { border-color: var(--accent-cyan); color: var(--accent-cyan); }
+  .page-btn.active { background: rgba(0,212,255,0.15); border-color: var(--accent-cyan); color: var(--accent-cyan); }
+
+  /* BOTTOM GRID */
+  .bottom-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+
+  @media (max-width: 900px) { .bottom-grid { grid-template-columns: 1fr; } }
+
+  .info-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    animation: fadeInUp 0.5s ease both;
+    animation-delay: 0.55s;
+  }
+
+  .info-card-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .dns-list { display: flex; flex-direction: column; gap: 8px; }
+
+  .dns-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    background: rgba(255,255,255,0.02);
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    transition: all 0.2s;
+  }
+
+  .dns-item:hover { border-color: var(--border-glow); }
+
+  .dns-domain { font-size: 11px; color: var(--text-primary); }
+  .dns-count { font-size: 12px; font-weight: 700; }
+
+  .bar-bg {
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    margin-top: 4px;
+    overflow: hidden;
+  }
+
+  .bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 1s ease;
+  }
+
+  .retrans-list { display: flex; flex-direction: column; gap: 6px; }
+
+  .retrans-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    background: rgba(255,255,255,0.02);
+    border-radius: 5px;
+    font-size: 11px;
+  }
+
+  .retrans-ip { color: var(--text-primary); flex: 1; }
+  .retrans-cnt { font-weight: 700; }
+
+  /* FILTER EXPRESSION BOX */
+  .expr-box {
+    background: var(--bg-deep);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .expr-label { font-size: 10px; color: var(--text-dim); letter-spacing: 1px; white-space: nowrap; }
+
+  .expr-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--accent-cyan);
+    caret-color: var(--accent-cyan);
+  }
+
+  .expr-apply {
+    padding: 5px 14px;
+    background: rgba(0,212,255,0.1);
+    border: 1px solid rgba(0,212,255,0.4);
+    color: var(--accent-cyan);
+    border-radius: 4px;
+    font-size: 10px;
+    letter-spacing: 1px;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    transition: all 0.2s;
+  }
+
+  .expr-apply:hover { background: rgba(0,212,255,0.2); }
+
+  /* Loading spinner */
+  .spinner {
+    width: 16px; height: 16px;
+    border: 2px solid rgba(0,212,255,0.2);
+    border-top-color: var(--accent-cyan);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* EMPTY STATE */
+  .empty-state {
+    padding: 60px 20px;
+    text-align: center;
+  }
+
+  .empty-state-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 16px;
+    color: var(--text-secondary);
+    margin-top: 16px;
+    margin-bottom: 6px;
+  }
+
+  .empty-state-sub { font-size: 12px; color: var(--text-dim); }
+
+  /* FOOTER */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 16px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  footer .foot-left {
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  footer .foot-right {
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+  }
+
+  /* RESPONSIVE */
+  @media (max-width: 900px) {
+    .filters-grid { grid-template-columns: 1fr; }
+    .header-status { display: none; }
+  }
+
+  /* Progress bar animation on load */
+  @keyframes growBar {
+    from { width: 0; }
+    to { width: var(--target-width); }
+  }
+
+  .bar-fill { animation: growBar 1s ease 0.5s both; }
+
+  /* Tooltip */
+  [data-tooltip] { position: relative; cursor: help; }
+  [data-tooltip]::before {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 5px 10px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-glow);
+    border-radius: 4px;
+    font-size: 10px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+    z-index: 100;
+  }
+
+  [data-tooltip]:hover::before { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- HEADER -->
+  <header>
+    <div class="header-inner">
+      <div class="logo-group">
+        <div class="logo-icon">
+          <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+            <path d="M2 11H6L8 6L11 16L14 8L16 11H20" stroke="#00d4ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="11" cy="11" r="9" stroke="#00d4ff" stroke-width="0.5" stroke-dasharray="2 3"/>
+          </svg>
+        </div>
+        <div>
+          <div class="logo-text">TUIT<span>Scope</span></div>
+          <div class="logo-sub">Anomaly Detection Engine</div>
+        </div>
+      </div>
+      <div class="header-status">
+        <div class="status-badge">
+          <div class="status-dot" id="statusDot"></div>
+          <span id="statusText">Tayyor</span>
+        </div>
+        <div class="time-display" id="clockDisplay">--:--:--</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- UPLOAD -->
+  <div class="upload-section">
+    <div class="section-label">Fayl Yuklash</div>
+    <div class="upload-zone" id="uploadZone">
+      <input type="file" id="pcapFile" accept=".pcap,.pcapng,.cap" />
+      <div class="upload-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+          <path d="M21 15V19C21 19.5304 20.7893 20.0391 20.4142 20.4142C20.0391 20.7893 19.5304 21 19 21H5C4.46957 21 3.96086 20.7893 3.58579 20.4142C3.21071 20.0391 3 19.5304 3 19V15" stroke="#00d4ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M17 8L12 3L7 8" stroke="#00d4ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <line x1="12" y1="3" x2="12" y2="15" stroke="#00d4ff" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="upload-title">PCAP/PCAPNG fayl yuklang</div>
+      <div class="upload-sub">anomaly_student.pcapng · Drag & drop yoki bosib tanlang</div>
+      <button class="upload-btn" type="button">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M6 1V9M6 1L3 4M6 1L9 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M1 11H11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+        Fayl tanlash
+      </button>
+    </div>
+    <div class="file-info" id="fileInfo">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M9 1H4C3.46957 1 2.96086 1.21071 2.58579 1.58579C2.21071 1.96086 2 2.46957 2 3V13C2 13.5304 2.21071 14.0391 2.58579 14.4142C2.96086 14.7893 3.46957 15 4 15H12C12.5304 15 13.0391 14.7893 13.4142 14.4142C13.7893 14.0391 14 13.5304 14 13V6L9 1Z" stroke="#00ff88" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M9 1V6H14" stroke="#00ff88" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="file-info-name" id="fileName">-</span>
+      <span class="file-info-size" id="fileSize">-</span>
+    </div>
+  </div>
+
+  <!-- FILTER EXPRESSION BAR -->
+  <div class="expr-box">
+    <span class="expr-label">FILTER:</span>
+    <input class="expr-input" id="filterExpr" placeholder="tcp.flags.syn==1 && tcp.flags.ack==0" spellcheck="false" />
+    <button class="expr-apply" onclick="applyFilter()">APPLY</button>
+  </div>
+
+  <!-- FILTERS -->
+  <div class="filters-grid">
+    <div class="filter-card">
+      <div class="filter-card-title">
+        <span class="dot" style="background:var(--accent-cyan)"></span>
+        Asosiy Protokol Filtrlari
+      </div>
+      <div class="filter-tags">
+        <label class="filter-tag cyan" onclick="setFilter('tcp')">
+          <input type="radio" name="proto" value="tcp" /> TCP
+        </label>
+        <label class="filter-tag green" onclick="setFilter('udp')">
+          <input type="radio" name="proto" value="udp" /> UDP
+        </label>
+        <label class="filter-tag yellow" onclick="setFilter('dns')">
+          <input type="radio" name="proto" value="dns" /> DNS
+        </label>
+        <label class="filter-tag orange" onclick="setFilter('icmp')">
+          <input type="radio" name="proto" value="icmp" /> ICMP
+        </label>
+        <label class="filter-tag cyan" onclick="setFilter('http')">
+          <input type="radio" name="proto" value="http" /> HTTP
+        </label>
+      </div>
+      <span class="filter-code" id="protoFilterCode">// Filtr tanlanmagan</span>
+    </div>
+
+    <div class="filter-card">
+      <div class="filter-card-title">
+        <span class="dot" style="background:var(--accent-red)"></span>
+        Anomaliya Filtrlari
+      </div>
+      <div class="filter-tags">
+        <label class="filter-tag red" onclick="setAnomalyFilter('tcp.flags.syn==1 && tcp.flags.ack==0')">
+          SYN-Flood
+        </label>
+        <label class="filter-tag red" onclick="setAnomalyFilter('tcp.flags.reset==1')">
+          RST
+        </label>
+        <label class="filter-tag orange" onclick="setAnomalyFilter('tcp.flags.fin==1')">
+          FIN
+        </label>
+        <label class="filter-tag orange" onclick="setAnomalyFilter('tcp.analysis.retransmission')">
+          Retransmit
+        </label>
+        <label class="filter-tag yellow" onclick="setAnomalyFilter('tcp.analysis.duplicate_ack')">
+          Dup ACK
+        </label>
+        <label class="filter-tag red" onclick="setAnomalyFilter('tcp.analysis.lost_segment')">
+          Lost Seg
+        </label>
+      </div>
+      <span class="filter-code" id="anomalyFilterCode">// Anomaliya filtri tanlanmagan</span>
+    </div>
+  </div>
+
+  <!-- ANALYZE BUTTON -->
+  <button class="analyze-btn" id="analyzeBtn" onclick="runAnalysis()">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.3"/>
+      <path d="M10 10L14 14" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+      <path d="M6.5 4V9M4 6.5H9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+    </svg>
+    Tahlilni Boshlash
+  </button>
+
+  <!-- STATS (hidden until analysis) -->
+  <div id="resultsSection" style="display:none;">
+
+    <div class="section-label" style="margin-bottom:12px;">Statistika Xulosasi</div>
+    <div class="stats-grid" id="statsGrid">
+      <div class="stat-card cyan">
+        <div class="stat-label">Jami Paketlar</div>
+        <div class="stat-value" id="statTotal">0</div>
+        <div class="stat-change">Barcha protokollar</div>
+      </div>
+      <div class="stat-card green">
+        <div class="stat-label">TCP Paketlar</div>
+        <div class="stat-value" id="statTcp">0</div>
+        <div class="stat-change">Jami TCP</div>
+      </div>
+      <div class="stat-card red">
+        <div class="stat-label">RST Paketlar</div>
+        <div class="stat-value" id="statRst">0</div>
+        <div class="stat-change">Ulanish uzilish</div>
+      </div>
+      <div class="stat-card orange">
+        <div class="stat-label">Retransmit</div>
+        <div class="stat-value" id="statRetrans">0</div>
+        <div class="stat-change">Qayta uzatish</div>
+      </div>
+      <div class="stat-card yellow">
+        <div class="stat-label">Dup ACK</div>
+        <div class="stat-value" id="statDupAck">0</div>
+        <div class="stat-change">Dublikat ACK</div>
+      </div>
+      <div class="stat-card purple">
+        <div class="stat-label">SYN paketlar</div>
+        <div class="stat-value" id="statSyn">0</div>
+        <div class="stat-change">Ulanish urinish</div>
+      </div>
+    </div>
+
+    <!-- CHARTS -->
+    <div class="section-label" style="margin-bottom:12px;">Vizualizatsiya</div>
+    <div class="charts-grid">
+      <div class="chart-card">
+        <div class="chart-header">
+          <div class="chart-title">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M1 7H3L4.5 3L7 11L9.5 5L11 7H13" stroke="#00d4ff" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Trafik Hajmi Vaqt Bo'yicha
+          </div>
+          <span class="chart-badge live">LIVE</span>
+        </div>
+        <canvas id="timelineChart"></canvas>
+      </div>
+      <div class="chart-card">
+        <div class="chart-header">
+          <div class="chart-title">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <circle cx="7" cy="7" r="5.5" stroke="#00d4ff" stroke-width="1.2"/>
+              <path d="M7 1.5V7L10.5 7" stroke="#00d4ff" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Protokol Taqsimoti
+          </div>
+        </div>
+        <canvas id="protoChart"></canvas>
+      </div>
+    </div>
+
+    <!-- ANOMALY ALERTS -->
+    <div class="alerts-section">
+      <div class="section-label" style="margin-bottom:12px;">Anomaliya Ogohlantirishlari</div>
+      <div class="alerts-list" id="alertsList"></div>
+    </div>
+
+    <!-- PACKET TABLE -->
+    <div class="section-label" style="margin-bottom:12px;">Paket Ro'yxati</div>
+    <div class="table-card">
+      <div class="table-header">
+        <div class="table-title">Paket Ma'lumotlari</div>
+        <div class="table-controls">
+          <input class="table-search" id="tableSearch" placeholder="IP yoki protokol qidiring..." oninput="filterTable()" />
+          <select class="table-select" id="anomalyFilter" onchange="filterTable()">
+            <option value="all">Barchasi</option>
+            <option value="anomaly">Faqat anomaliyalar</option>
+            <option value="normal">Normal</option>
+          </select>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Vaqt</th>
+              <th>Manba IP</th>
+              <th>Manzil IP</th>
+              <th>Protokol</th>
+              <th>Uzunlik</th>
+              <th>TCP Flaglar</th>
+              <th>Holat</th>
+              <th>Ma'lumot</th>
+            </tr>
+          </thead>
+          <tbody id="packetTableBody"></tbody>
+        </table>
+      </div>
+      <div class="pagination">
+        <div class="page-info" id="pageInfo">0 paket ko'rsatilmoqda</div>
+        <div class="page-btns" id="pageBtns"></div>
+      </div>
+    </div>
+
+    <!-- BOTTOM CARDS -->
+    <div class="bottom-grid">
+      <div class="info-card">
+        <div class="info-card-title">
+          DNS So'rovlar Tahlili
+          <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">Top domenlar</span>
+        </div>
+        <div class="dns-list" id="dnsList"></div>
+      </div>
+      <div class="info-card">
+        <div class="info-card-title">
+          Retransmission IP Manzillar
+          <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">Top manzillar</span>
+        </div>
+        <div class="retrans-list" id="retransList"></div>
+      </div>
+      <div class="info-card">
+        <div class="info-card-title">
+          TCP Flag Taqsimoti
+          <span style="font-size:11px;color:var(--text-secondary);font-weight:400;">Flaglar</span>
+        </div>
+        <canvas id="flagChart" style="max-height:180px;"></canvas>
+      </div>
+    </div>
+
+  </div><!-- end resultsSection -->
+
+  <footer>
+    <div class="foot-left">NetScope v2.4.1 &mdash; Wireshark PCAP Anomaly Analyzer</div>
+    <div class="foot-right">4-TOPSHIRIQ &mdash; TARMOQ XAVFSIZLIGI LABORATORIYASI</div>
+  </footer>
+
+</div>
+
+<script>
+  // ==================== CLOCK ====================
+  function updateClock() {
+    const now = new Date();
+    const t = now.toTimeString().slice(0,8);
+    const el = document.getElementById('clockDisplay');
+    if (el) el.textContent = t;
+  }
+  setInterval(updateClock, 1000);
+  updateClock();
+
+  // ==================== UPLOAD ====================
+  const uploadZone = document.getElementById('uploadZone');
+  const fileInput = document.getElementById('pcapFile');
+
+  uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+  uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+  uploadZone.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadZone.classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  });
+  fileInput.addEventListener('change', () => { if (fileInput.files[0]) handleFile(fileInput.files[0]); });
+
+  let uploadedFile = null;
+
+  function handleFile(file) {
+    uploadedFile = file;
+    const fi = document.getElementById('fileInfo');
+    document.getElementById('fileName').textContent = file.name;
+    document.getElementById('fileSize').textContent = formatBytes(file.size);
+    fi.classList.add('visible');
+    setStatus('active', 'Fayl yuklandi');
+  }
+
+  function formatBytes(b) {
+    if (b < 1024) return b + ' B';
+    if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+    return (b/1048576).toFixed(2) + ' MB';
+  }
+
+  // ==================== FILTER ====================
+  function setFilter(proto) {
+    document.getElementById('filterExpr').value = proto;
+    document.getElementById('protoFilterCode').textContent = '// Wireshark: ' + proto;
+    document.querySelectorAll('.filter-tag').forEach(t => t.classList.remove('active'));
+    event.currentTarget.classList.add('active');
+  }
+
+  function setAnomalyFilter(expr) {
+    document.getElementById('filterExpr').value = expr;
+    document.getElementById('anomalyFilterCode').textContent = '// ' + expr;
+    event.currentTarget.classList.add('active');
+  }
+
+  function applyFilter() {
+    const val = document.getElementById('filterExpr').value.trim();
+    if (val) {
+      document.getElementById('anomalyFilterCode').textContent = '// ' + val;
+    }
+  }
+
+  function setStatus(state, text) {
+    const dot = document.getElementById('statusDot');
+    const txt = document.getElementById('statusText');
+    dot.className = 'status-dot' + (state === 'active' ? '' : state === 'loading' ? ' offline' : '');
+    if (txt) txt.textContent = text;
+  }
+
+  // ==================== DEMO DATA ====================
+  // This mock data simulates what the backend would return.
+  // Replace these with real API calls to your backend.
+  
+
+  function generateInfo(proto, flags, anomaly) {
+    if (anomaly === 'RETRANSMIT') return '[TCP Retransmission] Seq=1024 Ack=2048';
+    if (anomaly === 'DUP-ACK') return '[TCP Dup ACK] Ack=4096 Win=65535';
+    if (anomaly === 'RST') return '[TCP RST] Ulanish majburiy uzildi';
+    if (anomaly === 'LOST-SEG') return '[TCP Lost Segment] Seq=8192';
+    if (anomaly === 'SYN-FLOOD') return '[SYN] Seq=0 Win=64240 MSS=1460';
+    if (proto === 'DNS') return 'Standard query A google.com';
+    if (proto === 'ICMP') return 'Echo (ping) request';
+    const f = flags.join('+');
+    return '[TCP] ' + f + ' Seq=1024 Ack=4096 Win=65535 Len=0';
+  }
+
+  function computeStats(packets) {
+    const stats = {
+      total: packets.length,
+      tcp: 0, udp: 0, dns: 0, icmp: 0, http: 0,
+      syn: 0, rst: 0, fin: 0, ack: 0, psh: 0,
+      retrans: 0, dupAck: 0, lostSeg: 0, synFlood: 0
+    };
+    const dnsMap = {};
+    const retransMap = {};
+    packets.forEach(p => {
+      const pr = p.proto.toLowerCase();
+      if (stats[pr] !== undefined) stats[pr]++;
+      if (p.flags.includes('SYN') && !p.flags.includes('ACK')) stats.syn++;
+      if (p.flags.includes('RST')) stats.rst++;
+      if (p.flags.includes('FIN')) stats.fin++;
+      if (p.flags.includes('ACK')) stats.ack++;
+      if (p.flags.includes('PSH')) stats.psh++;
+      if (p.anomaly === 'RETRANSMIT') { stats.retrans++; retransMap[p.src] = (retransMap[p.src]||0)+1; }
+      if (p.anomaly === 'DUP-ACK') stats.dupAck++;
+      if (p.anomaly === 'LOST-SEG') stats.lostSeg++;
+      if (p.anomaly === 'SYN-FLOOD') stats.synFlood++;
+      if (pr === 'dns') { const d = ['google.com','youtube.com','facebook.com','github.com','openai.com'][Math.floor(Math.random()*5)]; dnsMap[d] = (dnsMap[d]||0)+1; }
+    });
+    return { stats, dnsMap, retransMap };
+  }
+
+  // ==================== CHARTS ====================
+  let timelineChart, protoChart, flagChart;
+
+  function buildCharts(packets, stats) {
+    // Timeline chart
+    const labels = [];
+    const data = [];
+    const anomalyData = [];
+    for (let i = 0; i < 20; i++) {
+      labels.push((i * 0.6).toFixed(1) + 's');
+      data.push(Math.floor(Math.random() * 30 + 10));
+      anomalyData.push(Math.floor(Math.random() * 8));
+    }
+
+    if (timelineChart) timelineChart.destroy();
+    const ctx1 = document.getElementById('timelineChart').getContext('2d');
+    timelineChart = new Chart(ctx1, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'Normal paketlar',
+            data,
+            borderColor: '#00d4ff',
+            backgroundColor: 'rgba(0,212,255,0.08)',
+            borderWidth: 1.5,
+            pointRadius: 2,
+            tension: 0.4,
+            fill: true
+          },
+          {
+            label: 'Anomaliya',
+            data: anomalyData,
+            borderColor: '#ff3b5c',
+            backgroundColor: 'rgba(255,59,92,0.08)',
+            borderWidth: 1.5,
+            pointRadius: 3,
+            tension: 0.4,
+            fill: true
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { labels: { color: '#6b84b8', font: { family: 'JetBrains Mono', size: 10 } } } },
+        scales: {
+          x: { grid: { color: 'rgba(26,37,64,0.8)' }, ticks: { color: '#3a4a6b', font: { size: 9 } } },
+          y: { grid: { color: 'rgba(26,37,64,0.8)' }, ticks: { color: '#3a4a6b', font: { size: 9 } } }
+        }
+      }
+    });
+
+    // Protocol Doughnut
+    if (protoChart) protoChart.destroy();
+    const ctx2 = document.getElementById('protoChart').getContext('2d');
+    protoChart = new Chart(ctx2, {
+      type: 'doughnut',
+      data: {
+        labels: ['TCP','UDP','DNS','ICMP','HTTP'],
+        datasets: [{
+          data: [stats.tcp, stats.udp, stats.dns, stats.icmp, stats.http],
+          backgroundColor: ['rgba(0,212,255,0.7)','rgba(0,255,136,0.7)','rgba(168,85,247,0.7)','rgba(255,215,0,0.7)','rgba(255,140,66,0.7)'],
+          borderColor: ['#00d4ff','#00ff88','#a855f7','#ffd700','#ff8c42'],
+          borderWidth: 1
+        }]
+      },
+      options: {
+        responsive: true,
+        cutout: '65%',
+        plugins: {
+          legend: { position: 'bottom', labels: { color: '#6b84b8', font: { family: 'JetBrains Mono', size: 9 }, padding: 10 } }
+        }
+      }
+    });
+
+    // Flag Bar Chart
+    if (flagChart) flagChart.destroy();
+    const ctx3 = document.getElementById('flagChart').getContext('2d');
+    flagChart = new Chart(ctx3, {
+      type: 'bar',
+      data: {
+        labels: ['SYN','ACK','RST','FIN','PSH'],
+        datasets: [{
+          label: 'Soni',
+          data: [stats.syn, stats.ack, stats.rst, stats.fin, stats.psh],
+          backgroundColor: ['rgba(0,212,255,0.5)','rgba(0,255,136,0.5)','rgba(255,59,92,0.6)','rgba(255,215,0,0.5)','rgba(168,85,247,0.5)'],
+          borderColor: ['#00d4ff','#00ff88','#ff3b5c','#ffd700','#a855f7'],
+          borderWidth: 1,
+          borderRadius: 3
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: 'rgba(26,37,64,0.8)' }, ticks: { color: '#6b84b8', font: { size: 9 } } },
+          y: { grid: { color: 'rgba(26,37,64,0.8)' }, ticks: { color: '#3a4a6b', font: { size: 9 } } }
+        }
+      }
+    });
+  }
+
+  // ==================== ALERTS ====================
+  function buildAlerts(stats) {
+    const alertsList = document.getElementById('alertsList');
+    alertsList.innerHTML = '';
+    const alerts = [];
+
+    if (stats.synFlood > 3) alerts.push({ level: 'critical', type: 'SYN-Flood Hujum', desc: 'Juda ko\'p SYN paketlar, SYN+ACK javobi kam - potensial port skanerlash yoki DDoS', count: stats.synFlood + stats.syn });
+    else if (stats.syn > 0) alerts.push({ level: 'info', type: 'SYN Paketlar', desc: 'Oddiy ulanish urinishlari aniqlandi', count: stats.syn });
+
+    if (stats.rst > 5) alerts.push({ level: 'warning', type: 'Ko\'p RST Paketlar', desc: 'Ulanishlar tez-tez majburiy uzilmoqda - server muammosi yoki IDS bloklash', count: stats.rst });
+    else if (stats.rst > 0) alerts.push({ level: 'info', type: 'RST Paketlar', desc: 'Bir nechta ulanish uzilishi aniqlandi', count: stats.rst });
+
+    if (stats.retrans > 5) alerts.push({ level: 'warning', type: 'Ko\'p Retransmission', desc: 'Paket yo\'qotish yoki kanal sifati muammosi - Wi-Fi signal sust yoki tarmoq band', count: stats.retrans });
+    else if (stats.retrans > 0) alerts.push({ level: 'info', type: 'Retransmission', desc: 'Bir nechta qayta uzatish aniqlandi', count: stats.retrans });
+
+    if (stats.dupAck > 3) alerts.push({ level: 'warning', type: 'Dublikat ACK', desc: 'Qabul qiluvchi takror ACK yubormoqda - paket yo\'qolishi ehtimoli', count: stats.dupAck });
+
+    if (stats.lostSeg > 0) alerts.push({ level: 'critical', type: 'Yo\'qolgan Segment', desc: 'TCP segment yo\'qolishi aniqlandi - jiddiy kanal muammosi', count: stats.lostSeg });
+
+    if (alerts.length === 0) alerts.push({ level: 'ok', type: 'Anomaliya topilmadi', desc: 'Trafik normal ko\'rinadi, shubhali faoliyat aniqlanmadi', count: 0 });
+
+    alerts.forEach((a, i) => {
+      const div = document.createElement('div');
+      div.className = 'alert-item ' + a.level;
+      div.style.animationDelay = (i * 0.07) + 's';
+      div.innerHTML = `
+        <span class="alert-level">${a.level.toUpperCase()}</span>
+        <span class="alert-type">${a.type}</span>
+        <span class="alert-desc">${a.desc}</span>
+        ${a.count > 0 ? `<span class="alert-count">${a.count}</span>` : ''}
+        <span class="alert-time">just now</span>
+      `;
+      alertsList.appendChild(div);
+    });
+  }
+
+  // ==================== TABLE ====================
+  let allPackets = [];
+  let currentPage = 1;
+  const perPage = 15;
+
+  function buildTable(packets) {
+    allPackets = packets;
+    currentPage = 1;
+    renderTable();
+  }
+
+  function renderTable() {
+    const search = document.getElementById('tableSearch').value.toLowerCase();
+    const anomalyFilter = document.getElementById('anomalyFilter').value;
+    let filtered = allPackets.filter(p => {
+      const matchSearch = !search || p.src.includes(search) || p.dst.includes(search) || p.proto.toLowerCase().includes(search);
+      const matchAnomaly = anomalyFilter === 'all' ||
+        (anomalyFilter === 'anomaly' && p.anomaly) ||
+        (anomalyFilter === 'normal' && !p.anomaly);
+      return matchSearch && matchAnomaly;
+    });
+
+    const total = filtered.length;
+    const pages = Math.ceil(total / perPage);
+    const start = (currentPage - 1) * perPage;
+    const pageData = filtered.slice(start, start + perPage);
+
+    const tbody = document.getElementById('packetTableBody');
+    tbody.innerHTML = '';
+
+    if (pageData.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><div class="empty-state-title">Paket topilmadi</div><div class="empty-state-sub">Filtr shartlarini o\'zgartiring</div></div></td></tr>';
+    } else {
+      pageData.forEach(p => {
+        const tr = document.createElement('tr');
+        if (p.anomaly) tr.classList.add('anomaly-row');
+        const flagsHtml = p.flags.map(f => `<span class="flag-badge flag-${f.toLowerCase()}">${f}</span>`).join('');
+        const anomalyHtml = p.anomaly
+          ? `<span class="anomaly-tag">${p.anomaly}</span>`
+          : `<span class="ok-tag">Normal</span>`;
+        tr.innerHTML = `
+          <td class="td-num">${p.num}</td>
+          <td class="td-time">${p.time}</td>
+          <td class="td-src">${p.src}</td>
+          <td class="td-dst">${p.dst}</td>
+          <td><span class="proto-badge proto-${p.proto.toLowerCase()}">${p.proto}</span></td>
+          <td>${p.len}</td>
+          <td>${flagsHtml}</td>
+          <td>${anomalyHtml}</td>
+          <td style="color:var(--text-dim);font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;">${p.info}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    document.getElementById('pageInfo').textContent = `${start+1}–${Math.min(start+perPage,total)} / ${total} paket`;
+    buildPagination(pages);
+  }
+
+  function buildPagination(pages) {
+    const container = document.getElementById('pageBtns');
+    container.innerHTML = '';
+    const prev = document.createElement('button');
+    prev.className = 'page-btn';
+    prev.textContent = '<';
+    prev.onclick = () => { if (currentPage > 1) { currentPage--; renderTable(); } };
+    container.appendChild(prev);
+    for (let i = 1; i <= Math.min(pages, 7); i++) {
+      const btn = document.createElement('button');
+      btn.className = 'page-btn' + (i === currentPage ? ' active' : '');
+      btn.textContent = i;
+      btn.onclick = (function(p) { return function() { currentPage = p; renderTable(); }; })(i);
+      container.appendChild(btn);
+    }
+    const next = document.createElement('button');
+    next.className = 'page-btn';
+    next.textContent = '>';
+    next.onclick = () => { if (currentPage < pages) { currentPage++; renderTable(); } };
+    container.appendChild(next);
+  }
+
+  function filterTable() { currentPage = 1; renderTable(); }
+
+  // ==================== DNS & RETRANS LISTS ====================
+  function buildDnsList(dnsMap) {
+    const el = document.getElementById('dnsList');
+    el.innerHTML = '';
+    const sorted = Object.entries(dnsMap).sort((a,b) => b[1]-a[1]).slice(0,5);
+    const max = sorted[0]?.[1] || 1;
+    const colors = ['#00d4ff','#00ff88','#a855f7','#ffd700','#ff8c42'];
+    sorted.forEach(([domain, count], i) => {
+      const pct = Math.round(count/max*100);
+      el.innerHTML += `
+        <div class="dns-item">
+          <div>
+            <div class="dns-domain">${domain}</div>
+            <div class="bar-bg"><div class="bar-fill" style="--target-width:${pct}%;width:${pct}%;background:${colors[i]};"></div></div>
+          </div>
+          <div class="dns-count" style="color:${colors[i]}">${count}</div>
+        </div>`;
+    });
+    if (sorted.length === 0) el.innerHTML = '<div style="color:var(--text-dim);font-size:12px;text-align:center;padding:20px;">DNS so\'rovlar topilmadi</div>';
+  }
+
+  function buildRetransList(retransMap) {
+    const el = document.getElementById('retransList');
+    el.innerHTML = '';
+    const sorted = Object.entries(retransMap).sort((a,b) => b[1]-a[1]).slice(0,6);
+    sorted.forEach(([ip, count]) => {
+      const color = count > 3 ? 'var(--accent-red)' : count > 1 ? 'var(--accent-orange)' : 'var(--accent-yellow)';
+      el.innerHTML += `
+        <div class="retrans-item">
+          <span class="retrans-ip">${ip}</span>
+          <span class="retrans-cnt" style="color:${color}">${count}x</span>
+        </div>`;
+    });
+    if (sorted.length === 0) el.innerHTML = '<div style="color:var(--text-dim);font-size:12px;text-align:center;padding:20px;">Retransmission topilmadi</div>';
+  }
+
+  // ==================== MAIN ANALYSIS ====================
+  async function runAnalysis() {
+  if (!uploadedFile) {
+    alert("Avval PCAP fayl yuklang!");
+    return;
+  }
+
+  const btn = document.getElementById('analyzeBtn');
+  btn.classList.add('loading');
+  btn.innerHTML = '<div class="spinner"></div> Tahlil qilinmoqda...';
+  setStatus('loading', 'Tahlil qilinmoqda...');
+
+  const formData = new FormData();
+  formData.append("file", uploadedFile); 
+
+  try {
+    const response = await fetch("http://localhost:8000/api/analyze/", {
+      method: "POST",
+      body: formData
+    });
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.detail || "Server xatosi");
+    }
+
+    const data = await response.json();
+
+    // Stats
+    animateCount('statTotal', data.stats.total);
+    animateCount('statTcp',   data.stats.tcp);
+    animateCount('statRst',   data.stats.rst);
+    animateCount('statRetrans', data.stats.retrans);
+    animateCount('statDupAck',  data.stats.dupAck);
+    animateCount('statSyn',     data.stats.syn);
+
+    document.getElementById('resultsSection').style.display = 'block';
+    document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth' });
+
+    buildCharts(data.packets, data.stats);
+    buildAlerts(data.stats);
+    buildTable(data.packets);
+    buildDnsList(data.dns_map);
+    buildRetransList(data.retrans_map);
+
+    btn.classList.remove('loading');
+    btn.innerHTML = '✓ Tahlil Yakunlandi';
+    setStatus('active', 'Tahlil tugadi');
+
+  } catch (error) {
+    btn.classList.remove('loading');
+    btn.innerHTML = '⚠ Xato yuz berdi';
+    setStatus('offline', error.message);
+    alert("Xato: " + error.message);
+  }
+}
+
+  function animateCount(id, target) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    let current = 0;
+    const step = Math.max(1, Math.floor(target / 30));
+    const interval = setInterval(() => {
+      current = Math.min(current + step, target);
+      el.textContent = current;
+      if (current >= target) clearInterval(interval);
+    }, 30);
+  }
+</script>
+</body>
+</html>
