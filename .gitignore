@@ -2,3 +2,4 @@
 .venv
 /core/migrations
 db.sqlite3
+__pycache__
