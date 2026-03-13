@@ -1,326 +1,323 @@
-"""
-analyzer/pcap_parser.py
 
-Scapy yordamida PCAP/PCAPNG faylni o'qib,
-anomaliyalarni aniqlab, frontend kutgan formatda qaytaradi.
-"""
-
-import os
-import time
 
 try:
-    from scapy.all import rdpcap, TCP, UDP, ICMP, DNS, IP
-
-    SCAPY_AVAILABLE = True
+    import pyshark
+    PYSHARK_AVAILABLE = True
 except ImportError:
-    SCAPY_AVAILABLE = False
+    PYSHARK_AVAILABLE = False
 
 
-# ==================== ASOSIY PARSER ====================
+def _is_dns_pkt(pkt) -> bool:
+    layers = [l.layer_name.lower() for l in pkt.layers]
+    if 'dns' in layers:
+        return True
+    if 'udp' in layers:
+        try:
+            return pkt.udp.dstport == '53' or pkt.udp.srcport == '53'
+        except Exception:
+            pass
+    return False
+
+
+def _detect_proto(pkt) -> str:
+    layers = [l.layer_name.lower() for l in pkt.layers]
+    if _is_dns_pkt(pkt): return "DNS"
+    if 'http' in layers:  return "HTTP"
+    if 'tcp'  in layers:  return "TCP"
+    if 'udp'  in layers:  return "UDP"
+    if 'icmp' in layers:  return "ICMP"
+    return "OTHER"
+
+
+def _count_proto_stats(pkt, proto_name: str, stats: dict) -> None:
+    layers = [l.layer_name.lower() for l in pkt.layers]
+    if 'tcp'  in layers:     stats["tcp"]  += 1
+    if 'udp'  in layers:     stats["udp"]  += 1
+    if proto_name == "DNS":  stats["dns"]  += 1
+    if proto_name == "HTTP": stats["http"] += 1
+    if proto_name == "ICMP": stats["icmp"] += 1
+
+
+def _get_tcp_flags(pkt) -> list:
+    flags = []
+    try:
+        raw = str(pkt.tcp.flags)
+        f   = int(raw, 16)
+        if f & 0x002: flags.append("SYN")
+        if f & 0x010: flags.append("ACK")
+        if f & 0x004: flags.append("RST")
+        if f & 0x001: flags.append("FIN")
+        if f & 0x008: flags.append("PSH")
+    except Exception:
+        pass
+    return flags
+
+
+def _check_tcp_analysis(pkt) -> tuple:
+    is_retransmit = False
+    is_dup_ack    = False
+    is_lost_seg   = False
+    try:
+        for name in pkt.tcp.field_names:
+            n = name.lower()
+            if 'retransmission' in n: is_retransmit = True
+            if 'duplicate_ack'  in n: is_dup_ack    = True
+            if 'lost_segment'   in n: is_lost_seg   = True
+    except Exception:
+        pass
+    return is_retransmit, is_dup_ack, is_lost_seg
+
+
+def _get_dns_qname(pkt) -> str | None:
+
+    try:
+        dns   = pkt.dns
+        qname = getattr(dns, 'qry_name', None) or getattr(dns, 'name', None)
+
+        flags_response = getattr(dns, 'flags_response', None)
+        flags_qr       = getattr(dns, 'flags_qr', None)
+
+        if flags_response is not None:
+            is_query = str(flags_response) == '0'
+        elif flags_qr is not None:
+            is_query = str(flags_qr) == '0'
+        else:
+            is_query = qname is not None
+
+        if is_query and qname:
+            return str(qname)
+    except Exception:
+        pass
+
+    try:
+        layers = [l.layer_name.lower() for l in pkt.layers]
+        if 'data' in layers and 'udp' in layers:
+            raw_hex = pkt.data.data.replace(':', '')
+            raw     = bytes.fromhex(raw_hex)
+            if len(raw) < 13:
+                return None
+            qr_bit = (raw[2] >> 7) & 1
+            if qr_bit != 0:
+                return None
+            pos    = 12
+            labels = []
+            while pos < len(raw):
+                length = raw[pos]
+                if length == 0:
+                    break
+                if (length & 0xC0) == 0xC0:
+                    break
+                pos += 1
+                if pos + length > len(raw):
+                    break
+                labels.append(raw[pos:pos + length].decode('ascii', errors='replace'))
+                pos += length
+            if labels:
+                return '.'.join(labels)
+    except Exception:
+        pass
+
+    return None
+
+
+def _build_info(pkt, proto_name: str, flags_list: list, pkt_len: int) -> str:
+    if proto_name == "DNS":
+        qname = _get_dns_qname(pkt)
+        if qname:
+            return f"DNS query {qname}"
+        return f"DNS Len={pkt_len}"
+
+    if proto_name in ("TCP", "HTTP"):
+        try:
+            tcp       = pkt.tcp
+            flags_str = "+".join(flags_list) if flags_list else "NO FLAGS"
+            seq = getattr(tcp, 'seq', '?')
+            ack = getattr(tcp, 'ack', '?')
+            win = getattr(tcp, 'window_size_value', getattr(tcp, 'window_size', '?'))
+            return f"[{proto_name}] {flags_str} Seq={seq} Ack={ack} Win={win} Len={pkt_len}"
+        except AttributeError:
+            pass
+
+    if proto_name == "UDP":
+        try:
+            udp = pkt.udp
+            return f"[UDP] Sport={udp.srcport} Dport={udp.dstport} Len={pkt_len}"
+        except AttributeError:
+            pass
+
+    if proto_name == "ICMP":
+        try:
+            icmp     = pkt.icmp
+            icmp_map = {'0':'Echo Reply','8':'Echo Request',
+                        '3':'Dest Unreachable','11':'Time Exceeded','5':'Redirect'}
+            type_name = icmp_map.get(str(icmp.type), f"type={icmp.type}")
+            return f"ICMP {type_name} code={icmp.code} Len={pkt_len}"
+        except AttributeError:
+            pass
+
+    return f"[{proto_name}] Len={pkt_len}"
+
+
 
 def parse_pcap(filepath: str) -> dict:
-    """
-    PCAP faylni to'liq tahlil qiladi.
+    if not PYSHARK_AVAILABLE:
+        raise RuntimeError(
+            "PyShark o'rnatilmagan.\n"
+            "  pip install pyshark\n"
+            "  sudo apt install tshark   (Ubuntu/Debian)\n"
+            "  brew install wireshark    (macOS)"
+        )
 
-    Returns:
-        {
-            "stats": {...},
-            "packets": [...],
-            "dns_map": {...},
-            "retrans_map": {...}
-        }
-    """
-    if not SCAPY_AVAILABLE:
-        raise RuntimeError("Scapy o'rnatilmagan. Buyruq: pip install scapy")
+    cap = pyshark.FileCapture(
+        filepath,
+        use_json=False,
+        include_raw=False,
+        custom_parameters=['-d', 'udp.port==53,dns'],
+    )
 
-    raw_packets = rdpcap(filepath)
-
-    # ---------- Schyotchiklar ----------
     stats = {
-        "total": 0,
-        "tcp": 0,
-        "udp": 0,
-        "dns": 0,
-        "icmp": 0,
-        "http": 0,
-        "syn": 0,
-        "rst": 0,
-        "fin": 0,
-        "ack": 0,
-        "psh": 0,
-        "retrans": 0,
-        "dupAck": 0,
-        "lostSeg": 0,
-        "synFlood": 0,
+        "total": 0, "tcp": 0, "udp": 0, "dns": 0, "icmp": 0, "http": 0,
+        "syn": 0, "rst": 0, "fin": 0, "ack": 0, "psh": 0,
+        "retrans": 0, "dupAck": 0, "lostSeg": 0, "synFlood": 0,
     }
 
-    dns_map: dict[str, int] = {}
-    retrans_map: dict[str, int] = {}
-    result_packets: list[dict] = []
+    dns_map:        dict = {}
+    retrans_map:    dict = {}
+    result_packets: list = []
+    syn_counter:    dict = {}
+    base_time             = None
+    pkt_index             = 0
 
-    # Anomaliya aniqlash uchun yordamchi lug'atlar
-    syn_counter: dict[str, int] = {}  # src_ip -> SYN soni
-    seen_seqs: dict[tuple, float] = {}  # (src, dst, seq) -> vaqt
-    ack_tracker: dict[tuple, dict] = {}  # (src, dst) -> {ack, count}
+    try:
+        for pkt in cap:
+            try:
+                src_ip = pkt.ip.src
+                dst_ip = pkt.ip.dst
+            except AttributeError:
+                continue
 
-    base_time = float(raw_packets[0].time) if len(raw_packets) > 0 else 0
+            pkt_index += 1
+            stats["total"] += 1
 
-    for i, pkt in enumerate(raw_packets):
+            try:
+                abs_time = float(pkt.sniff_timestamp)
+                if base_time is None:
+                    base_time = abs_time
+                rel_time = abs_time - base_time
+            except (AttributeError, ValueError):
+                rel_time = 0.0
 
-        # IP qatlami bo'lmasa o'tkazib yuborish
-        if not pkt.haslayer(IP):
-            continue
+            pkt_len    = int(pkt.length) if hasattr(pkt, 'length') else 0
+            proto_name = _detect_proto(pkt)
 
-        stats["total"] += 1
-        rel_time = float(pkt.time) - base_time
+            _count_proto_stats(pkt, proto_name, stats)
 
-        src_ip = pkt[IP].src
-        dst_ip = pkt[IP].dst
-        pkt_len = len(pkt)
-        flags_list: list[str] = []
-        anomaly = None
-        proto_name = "OTHER"
-        info = ""
+            if proto_name == "DNS":
+                qname = _get_dns_qname(pkt)
+                if qname:
+                    for domain in qname.split('\n'):
+                        domain = domain.strip().rstrip('.')
+                        if domain:
+                            dns_map[domain] = 1
 
-        # ===== TCP =====
-        if pkt.haslayer(TCP):
-            tcp = pkt[TCP]
-            proto_name = "TCP"
-            stats["tcp"] += 1
+            flags_list = []
+            anomaly    = None
+            has_tcp    = 'tcp' in [l.layer_name.lower() for l in pkt.layers]
 
-            payload = bytes(tcp.payload)
+            if has_tcp:
+                flags_list = _get_tcp_flags(pkt)
 
-            # ===== HTTP detection =====
-            if payload.startswith((
-                    b"GET", b"POST", b"PUT",
-                    b"DELETE", b"HEAD", b"OPTIONS",
-                    b"PATCH", b"HTTP/"
-            )):
-                proto_name = "HTTP"
-                stats["http"] += 1
+                if "SYN" in flags_list:
+                    stats["syn"] += 1
+                    syn_counter[src_ip] = syn_counter.get(src_ip, 0) + 1
+                if "ACK" in flags_list: stats["ack"] += 1
+                if "RST" in flags_list:
+                    stats["rst"] += 1
+                    anomaly = "RST"
+                if "FIN" in flags_list: stats["fin"] += 1
+                if "PSH" in flags_list: stats["psh"] += 1
 
-            # ===== TCP flags =====
-            f = int(tcp.flags)
+                is_retransmit, is_dup_ack, is_lost_seg = _check_tcp_analysis(pkt)
 
-            if f & 0x02:
-                flags_list.append("SYN")
-                stats["syn"] += 1
-                syn_counter[src_ip] = syn_counter.get(src_ip, 0) + 1
+                if is_retransmit:
+                    anomaly = anomaly or "RETRANSMIT"
+                    stats["retrans"] += 1
+                    retrans_map[src_ip] = retrans_map.get(src_ip, 0) + 1
+                elif is_dup_ack:
+                    anomaly = anomaly or "DUP-ACK"
+                    stats["dupAck"] += 1
 
-            if f & 0x10:
-                flags_list.append("ACK")
-                stats["ack"] += 1
+                if is_lost_seg:
+                    anomaly = anomaly or "LOST-SEG"
+                    stats["lostSeg"] += 1
 
-            if f & 0x04:
-                flags_list.append("RST")
-                stats["rst"] += 1
-                anomaly = "RST"
+                if "SYN" in flags_list and "ACK" not in flags_list:
+                    if syn_counter.get(src_ip, 0) > 20:
+                        anomaly = anomaly or "SYN-FLOOD"
+                        stats["synFlood"] += 1
 
-            if f & 0x01:
-                flags_list.append("FIN")
-                stats["fin"] += 1
+            info = _build_info(pkt, proto_name, flags_list, pkt_len)
 
-            if f & 0x08:
-                flags_list.append("PSH")
-                stats["psh"] += 1
+            result_packets.append({
+                "num":     pkt_index,
+                "time":    f"{rel_time:.6f}",
+                "src":     src_ip,
+                "dst":     dst_ip,
+                "proto":   proto_name,
+                "len":     pkt_len,
+                "flags":   flags_list,
+                "anomaly": anomaly,
+                "info":    info,
+            })
 
-            # ===== Retransmission detection =====
-            seq_key = (src_ip, dst_ip, tcp.sport, tcp.dport, tcp.seq)
-
-            if seq_key in seen_seqs:
-                anomaly = anomaly or "RETRANSMIT"
-                stats["retrans"] += 1
-                retrans_map[src_ip] = retrans_map.get(src_ip, 0) + 1
-            else:
-                seen_seqs[seq_key] = rel_time
-
-            # ===== Duplicate ACK =====
-            ip_header = pkt[IP].ihl * 4
-            tcp_header = tcp.dataofs * 4
-
-            is_pure_ack = (
-                    "ACK" in flags_list and
-                    "SYN" not in flags_list and
-                    "FIN" not in flags_list and
-                    "RST" not in flags_list and
-                    pkt_len == ip_header + tcp_header
-            )
-
-            if is_pure_ack:
-                ak = (src_ip, dst_ip, tcp.sport, tcp.dport)
-
-                if ak in ack_tracker:
-                    prev = ack_tracker[ak]
-
-                    if prev["ack"] == tcp.ack:
-                        prev["count"] += 1
-
-                        if prev["count"] >= 3:
-                            anomaly = anomaly or "DUP-ACK"
-                            stats["dupAck"] += 1
-                    else:
-                        ack_tracker[ak] = {"ack": tcp.ack, "count": 1}
-
-                else:
-                    ack_tracker[ak] = {"ack": tcp.ack, "count": 1}
-
-            # ===== SYN Flood detection =====
-            is_syn_only = "SYN" in flags_list and "ACK" not in flags_list
-
-            if is_syn_only and syn_counter.get(src_ip, 0) > 20:
-                anomaly = anomaly or "SYN-FLOOD"
-                stats["synFlood"] += 1
-
-            flags_str = "+".join(flags_list) if flags_list else "NO FLAGS"
-
-            info = (
-                f"[{proto_name}] {flags_str} "
-                f"Seq={tcp.seq} Ack={tcp.ack} "
-                f"Win={tcp.window} Len={pkt_len}"
-            )
-
-        # ===== UDP =====
-        elif pkt.haslayer(UDP):
-            udp = pkt[UDP]
-            proto_name = "UDP"
-            stats["udp"] += 1
-            info = f"[UDP] Sport={udp.sport} Dport={udp.dport} Len={pkt_len}"
-
-        # ===== DNS (UDP/TCP ustida) =====
-        if pkt.haslayer(DNS):
-            dns_layer = pkt[DNS]
-            # UDP statistikasidan alohida hisoblash
-            if proto_name == "UDP":
-                proto_name = "DNS"
-                stats["dns"] += 1
-                stats["udp"] -= 1
-            if dns_layer.qd:
-                try:
-                    domain = dns_layer.qd.qname.decode(errors="ignore").rstrip(".")
-                    dns_map[domain] = dns_map.get(domain, 0) + 1
-                    info = f"DNS query: {domain} (type {dns_layer.qd.qtype})"
-                except Exception:
-                    pass
-
-        # ===== ICMP =====
-        elif pkt.haslayer(ICMP) and proto_name not in ("TCP", "UDP", "DNS", "HTTP"):
-            icmp = pkt[ICMP]
-            proto_name = "ICMP"
-            stats["icmp"] += 1
-            icmp_types = {0: "Echo Reply", 8: "Echo Request", 3: "Dest Unreachable",
-                          11: "Time Exceeded", 5: "Redirect"}
-            type_name = icmp_types.get(icmp.type, f"type={icmp.type}")
-            info = f"ICMP {type_name} code={icmp.code} Len={pkt_len}"
-
-        # ===== Lost Segment (taxminiy) =====
-        # Agar anomaliya yo'q va seq raqami juda katta sakragan bo'lsa
-        # if anomaly is None and proto_name in ("TCP", "HTTP"):
-        #     if pkt.haslayer(TCP) and pkt[TCP].seq > 2 ** 31:
-        #         anomaly = "LOST-SEG"
-        #         stats["lostSeg"] += 1
-
-        result_packets.append({
-            "num": i + 1,
-            "time": f"{rel_time:.6f}",
-            "src": src_ip,
-            "dst": dst_ip,
-            "proto": proto_name,
-            "len": pkt_len,
-            "flags": flags_list,
-            "anomaly": anomaly,
-            "info": info or f"[{proto_name}] Len={pkt_len}",
-        })
+    finally:
+        cap.close()
 
     return {
-        "stats": stats,
-        "packets": result_packets,
-        "dns_map": dns_map,
+        "stats":       stats,
+        "packets":     result_packets,
+        "dns_map":     dns_map,
         "retrans_map": retrans_map,
     }
 
 
 # ==================== ALERT BUILDER ====================
 
-def build_alerts(stats: dict) -> list[dict]:
-    """
-    Statistika asosida anomaliya ogohlantirishlari ro'yxatini qaytaradi.
-    level: "critical" | "warning" | "info" | "ok"
-    """
+def build_alerts(stats: dict) -> list:
     alerts = []
 
-    # SYN-Flood
     if stats["synFlood"] > 3:
-        alerts.append({
-            "level": "critical",
-            "type": "SYN-Flood Hujum",
-            "desc": "Ko'p SYN paketlar, SYN+ACK javobi kam — potensial DDoS yoki port skanerlash",
-            "count": stats["synFlood"] + stats["syn"],
-        })
+        alerts.append({"level": "critical", "type": "SYN-Flood Hujum",
+            "desc": "Ko'p SYN paketlar — potensial DDoS yoki port skanerlash",
+            "count": stats["synFlood"] + stats["syn"]})
     elif stats["syn"] > 0:
-        alerts.append({
-            "level": "info",
-            "type": "SYN Paketlar",
-            "desc": "Oddiy ulanish urinishlari aniqlandi",
-            "count": stats["syn"],
-        })
+        alerts.append({"level": "info", "type": "SYN Paketlar",
+            "desc": "Oddiy ulanish urinishlari aniqlandi", "count": stats["syn"]})
 
-    # RST
     if stats["rst"] > 5:
-        alerts.append({
-            "level": "warning",
-            "type": "Ko'p RST Paketlar",
-            "desc": "Ulanishlar tez-tez majburiy uzilmoqda — server muammosi yoki IDS bloklash",
-            "count": stats["rst"],
-        })
+        alerts.append({"level": "warning", "type": "Ko'p RST Paketlar",
+            "desc": "Ulanishlar tez-tez majburiy uzilmoqda", "count": stats["rst"]})
     elif stats["rst"] > 0:
-        alerts.append({
-            "level": "info",
-            "type": "RST Paketlar",
-            "desc": "Bir nechta ulanish uzilishi aniqlandi",
-            "count": stats["rst"],
-        })
+        alerts.append({"level": "info", "type": "RST Paketlar",
+            "desc": "Bir nechta ulanish uzilishi aniqlandi", "count": stats["rst"]})
 
-    # Retransmission
     if stats["retrans"] > 5:
-        alerts.append({
-            "level": "warning",
-            "type": "Ko'p Retransmission",
-            "desc": "Paket yo'qotish — Wi-Fi signal sust yoki tarmoq band",
-            "count": stats["retrans"],
-        })
+        alerts.append({"level": "warning", "type": "Ko'p Retransmission",
+            "desc": "Paket yo'qotish — tarmoq muammosi", "count": stats["retrans"]})
     elif stats["retrans"] > 0:
-        alerts.append({
-            "level": "info",
-            "type": "Retransmission",
-            "desc": "Bir nechta qayta uzatish aniqlandi",
-            "count": stats["retrans"],
-        })
+        alerts.append({"level": "info", "type": "Retransmission",
+            "desc": "Bir nechta qayta uzatish aniqlandi", "count": stats["retrans"]})
 
-    # Dup ACK
     if stats["dupAck"] > 3:
-        alerts.append({
-            "level": "warning",
-            "type": "Dublikat ACK",
-            "desc": "Qabul qiluvchi takror ACK yubormoqda — paket yo'qolishi ehtimoli",
-            "count": stats["dupAck"],
-        })
+        alerts.append({"level": "warning", "type": "Dublikat ACK",
+            "desc": "Paket yo'qolishi ehtimoli", "count": stats["dupAck"]})
 
-    # Lost Segment
     if stats["lostSeg"] > 0:
-        alerts.append({
-            "level": "critical",
-            "type": "Yo'qolgan Segment",
-            "desc": "TCP segment yo'qolishi aniqlandi — jiddiy kanal muammosi",
-            "count": stats["lostSeg"],
-        })
+        alerts.append({"level": "critical", "type": "Yo'qolgan Segment",
+            "desc": "TCP segment yo'qolishi aniqlandi", "count": stats["lostSeg"]})
 
-    # Hech narsa topilmagan
     if not alerts:
-        alerts.append({
-            "level": "ok",
-            "type": "Anomaliya topilmadi",
-            "desc": "Trafik normal ko'rinadi, shubhali faoliyat aniqlanmadi",
-            "count": 0,
-        })
+        alerts.append({"level": "ok", "type": "Anomaliya topilmadi",
+            "desc": "Trafik normal ko'rinadi", "count": 0})
 
     return alerts

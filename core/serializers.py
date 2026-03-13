@@ -7,23 +7,14 @@ Request va Response uchun DRF Serializers.
 from rest_framework import serializers
 
 
-# ==================== REQUEST SERIALIZERS ====================
 
 class PcapUploadSerializer(serializers.Serializer):
-    """
-    POST /api/analyze/ va boshqa endpointlar uchun
-    fayl yuklash serializer.
 
-    Frontend shu tarzda yuboradi:
-        Content-Type: multipart/form-data
-        Body: file=<binary fayl>
-    """
     file = serializers.FileField(
         help_text="PCAP, PCAPNG yoki CAP formatdagi tarmoq fayli"
     )
 
     def validate_file(self, value):
-        """Fayl kengaytmasini tekshirish"""
         name = value.name.lower()
         allowed = ('.pcap', '.pcapng', '.cap')
         if not name.endswith(allowed):
@@ -41,9 +32,7 @@ class PcapUploadSerializer(serializers.Serializer):
 
 
 class PacketsQuerySerializer(serializers.Serializer):
-    """
-    POST /api/packets/ uchun query parametrlar.
-    """
+
     page = serializers.IntegerField(
         default=1, min_value=1,
         help_text="Sahifa raqami (default: 1)"
@@ -63,12 +52,9 @@ class PacketsQuerySerializer(serializers.Serializer):
     )
 
 
-# ==================== RESPONSE SERIALIZERS ====================
 
 class StatsSerializer(serializers.Serializer):
-    """
-    Statistika raqamlari. Frontend stat cardlarga bog'liq.
-    """
+
     total    = serializers.IntegerField()
     tcp      = serializers.IntegerField()
     udp      = serializers.IntegerField()
@@ -87,13 +73,7 @@ class StatsSerializer(serializers.Serializer):
 
 
 class PacketItemSerializer(serializers.Serializer):
-    """
-    Bitta paket. Frontend jadval qatoriga mos.
 
-    proto qiymatlari: "TCP" | "UDP" | "DNS" | "ICMP" | "HTTP" | "OTHER"
-    anomaly qiymatlari: "RETRANSMIT" | "DUP-ACK" | "RST" | "LOST-SEG" | "SYN-FLOOD" | null
-    flags qiymatlari: ["SYN"] | ["SYN","ACK"] | ["RST"] | ["FIN","ACK"] | ...
-    """
     num     = serializers.IntegerField()
     time    = serializers.CharField()           # "0.001234"
     src     = serializers.CharField()           # "192.168.1.1"
@@ -110,10 +90,7 @@ class PacketItemSerializer(serializers.Serializer):
 
 
 class AlertSerializer(serializers.Serializer):
-    """
-    Anomaliya ogohlantirishi.
-    level: "critical" | "warning" | "info" | "ok"
-    """
+
     level = serializers.CharField()
     type  = serializers.CharField()
     desc  = serializers.CharField()
@@ -121,9 +98,7 @@ class AlertSerializer(serializers.Serializer):
 
 
 class AnalyzeResponseSerializer(serializers.Serializer):
-    """
-    POST /api/analyze/ — to'liq javob.
-    """
+
     success     = serializers.BooleanField()
     filename    = serializers.CharField()
     file_size   = serializers.IntegerField()
@@ -139,9 +114,7 @@ class AnalyzeResponseSerializer(serializers.Serializer):
 
 
 class PacketsResponseSerializer(serializers.Serializer):
-    """
-    POST /api/packets/ — pagination bilan paketlar javob.
-    """
+
     page     = serializers.IntegerField()
     per_page = serializers.IntegerField()
     total    = serializers.IntegerField()
@@ -150,16 +123,12 @@ class PacketsResponseSerializer(serializers.Serializer):
 
 
 class AlertsResponseSerializer(serializers.Serializer):
-    """
-    POST /api/alerts/ — ogohlantirishlar javob.
-    """
+
     alerts = AlertSerializer(many=True)
 
 
 class StatsResponseSerializer(serializers.Serializer):
-    """
-    POST /api/stats/ — faqat statistika javob.
-    """
+
     stats       = StatsSerializer()
     dns_map     = serializers.DictField(child=serializers.IntegerField())
     retrans_map = serializers.DictField(child=serializers.IntegerField())
